@@ -727,13 +727,22 @@ echo ""
 info "串口 / QEMU Monitor 探测..."
 for tty in /dev/ttyS0 /dev/ttyS1 /dev/ttyUSB0; do
     if [[ -c "$tty" ]]; then
-        if stty -F "$tty" 2>/dev/null; then
-            sub "${tty} 可用，尝试读取 QEMU monitor 信息..."
-            # 尝试发送 '?' 命令到 QEMU Monitor
-            # (如果 monitor 被绑定到此串口)
-            QM_INFO=$(echo "info status" > "$tty" 2>/dev/null; head -1 < "$tty" 2>/dev/null || true)
-            [[ -n "$QM_INFO" ]] && sub "  QEMU Monitor: ${QM_INFO:0:100}"
-        fi
+        # 只做检测，不阻塞读取（串口读取会卡死）
+        sub "${tty} 存在，设置参数:"
+        stty -F "$tty" 115200 -echo -icanon 2>/dev/null && sub "  115200, -echo" || sub "  不可配置"
+    fi
+done 2>/dev/null || true
+
+# QEMU Monitor 探测（通过 /proc/cmdline 判断是否绑定了串口）
+MONITOR_INFO=$(cat /proc/cmdline 2>/dev/null | grep -oP 'console=ttyS\d+' | head -1)
+if [[ -n "$MONITOR_INFO" ]]; then
+    sub "控制台: ${MONITOR_INFO}"
+fi
+
+# 检查是否有 QEMU virtio 控制台设备
+for vport in /dev/vport*; do
+    if [[ -c "$vport" ]]; then
+        sub "${vport##*/} 可用 (virtio 串口)"
     fi
 done 2>/dev/null || true
 
