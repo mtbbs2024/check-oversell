@@ -99,22 +99,29 @@ header "【第一步】验证虚拟化环境"
 
 if command -v systemd-detect-virt &>/dev/null; then
     VIRT_TYPE=$(systemd-detect-virt 2>/dev/null || echo "none")
+    if [[ "$VIRT_TYPE" == "kvm" || "$VIRT_TYPE" == "qemu" ]]; then
+        IS_KVM=true
+    fi
 fi
 
-# CPU 特征检测
+# CPU 特征检测（补充: /proc/cpuinfo 中的 KVM 标志）
 if grep -qi "hypervisor" /proc/cpuinfo 2>/dev/null; then
     if grep -qi "KVM\|QEMU" /proc/cpuinfo 2>/dev/null; then
         IS_KVM=true
-    elif grep -qi "VMware\|Xen" /proc/cpuinfo 2>/dev/null; then
-        VIRT_TYPE="vmware_or_xen"
     fi
+fi
+
+# 补充: 通过 hypervisor 类型检测
+if [[ -d /sys/hypervisor ]] && [[ -f /sys/hypervisor/type ]]; then
+    HVTYPE=$(cat /sys/hypervisor/type 2>/dev/null)
+    [[ "$HVTYPE" == "kvm" ]] && IS_KVM=true
 fi
 
 if ! $IS_KVM; then
     warn "未检测到 KVM 虚拟化！当前: ${VIRT_TYPE}"
     warn "非 KVM 环境，部分检测项不可用，但会尽量执行"
 else
-    good "确认 KVM 虚拟化环境"
+    good "确认 KVM 虚拟化环境 (${VIRT_TYPE})"
 fi
 add_max 5
 
@@ -140,10 +147,9 @@ if command -v cpuid &>/dev/null; then
                     0x40000000)
                         # KVM 签名和最大叶子
                         if [[ -n "$EBX" && -n "$ECX" && -n "$EDX" ]]; then
-                            KVM_SIG=$(printf "%b" "\x$(echo $EBX | cut -c3-4)\x$(echo $EBX | cut -c5-6)\x$(echo $EBX | cut -c7-8)\x$(echo $EBX | cut -c9-10) 2>/dev/null || echo "$EBX")
-                            KVM_SIG2=$(printf "%b" "\x$(echo $ECX | cut -c3-4)\x$(echo $ECX | cut -c5-6)" 2>/dev/null || echo "")
-                            KVM_SIG3=$(printf "%b" "\x$(echo $EDX | cut -c3-4)\x$(echo $EDX | cut -c5-6)" 2>/dev/null || echo "")
-                            label "KVM 签名:" "${KVM_SIG}${KVM_SIG2}${KVM_SIG3}"
+                            # 从 CPUID 寄存器解码 KVM 签名 (KVMKVMKVM)
+                            KVM_SIG_RAW=$(printf "0x%08x%08x%08x" "$EAX" "$EBX" "$ECX" 2>/dev/null || echo "raw")
+                            label "KVM 签名(EAX,EBX,ECX):" "${KVM_SIG_RAW}"
                         fi
                         label "最大 CPUID 叶子:" "$(echo "$CPUID_OUT" | grep "eax" | head -1 | grep -oP '0x[0-9a-fA-F]+')"
                         ;;
